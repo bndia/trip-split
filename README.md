@@ -1,32 +1,66 @@
-# החשבון שלנו – Italy Trip
+# החשבון שלנו — Italy Trip (GitHub JSON + Cloudflare Worker)
 
-Mobile-first Hebrew expense splitter for רובי, גרציאני, ג׳ורדן, בן.
+אפליקציית הוצאות שיתופית לארבעה חברים: רובי, גרציאני, ג׳ורדן, בן.
 
-## Features
-- Add expenses in EUR / ILS / USD, choose payer and any set of participants, optional description.
-- Equal splits with deterministic cent rounding.
-- Per-currency debt netting and payer breakdown.
-- Everyone can view and delete entries.
-- Entry password: `bbttrrjj` (client-side only; **not security**).
+- אתר: `https://bndia.github.io/trip-split/`
+- מסך סיסמה פשוט: `bbttrrjj` (לא אמצעי אבטחה משמעותי)
+- מטבעות: EUR / ILS / USD, סיכום נפרד לכל מטבע
+- הוצאות משותפות בקובץ `expenses.json` בענף `main`
+- הוספת הוצאות, מחיקה, חלוקה שווה, קיזוז חובות, פירוט לפי משלם
+- סנכרון באמצעות API ב-Cloudflare Worker. האפליקציה מבצעת רענון כל 30 שניות ובכניסה מחדש.
+- עדכוני GitHub מתבצעים ב-Worker עם SHA + retry למניעת דריסת שינויים במקביל.
 
-## Local preview
-Open `index.html` in a browser. By default it stores data in that browser's `localStorage`, **not shared**.
+## פרסום Cloudflare Worker (הגדרה חד-פעמית)
 
-## Shared mode (Supabase)
-1. Create a free Supabase project.
-2. Open SQL Editor and run `setup.sql`.
-3. In Project Settings / API, copy **Project URL** and **anon/publishable key**. Never use the service_role/secret key in the browser.
-4. Edit the two constants near the beginning of the `<script>` in `index.html`:
-   ```js
-   const SUPABASE_URL='https://YOUR_PROJECT.supabase.co';
-   const SUPABASE_ANON_KEY='YOUR_PUBLISHABLE_OR_ANON_KEY';
-   ```
-5. Deploy `index.html` to GitHub Pages (Repository Settings → Pages → Deploy from a branch → main → /root).
-6. Share the Pages URL and the entry password with friends. Refresh the page to see others' changes.
+### 1. יצירת GitHub Fine-grained PAT
 
-**Security:** This is a deliberately public demo database with no real authentication. Anyone with access to the API URL/key (both visible in page source) can read, add, and delete expenses. The entry password only hides the UI and is not a security control. Do not store private data.
+היכנסו ל-GitHub: Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token.
 
-## Limitations
-- Equal split only; no custom per-person amounts.
-- No payment-settlement recording yet.
-- Refresh required to see changes from other devices (no realtime subscription).
+- Resource owner: `bndia`
+- Repository access: **Only select repositories** → `trip-split`
+- Repository permissions: **Contents → Read and write**
+- רצוי תוקף קצר שמספיק לכל הטיול; שימו לב שהתוקף יפסיק את הסנכרון.
+- העתיקו את הטוקן לשמירה במקום בטוח. **לא להכניס את הטוקן ל-GitHub עצמו, לקובץ JavaScript ציבורי, או לצ'אט.**
+
+### 2. יצירת Cloudflare Worker
+
+1. כנסו ל-https://dash.cloudflare.com/ , Workers & Pages → Create → Worker → התחילו עם Hello World (שמות/מיקום הכפתורים עשויים להשתנות).
+2. שם מומלץ: `trip-split-api`.
+3. פתחו את **Edit code**, החליפו את הקוד בתוכן `worker.js`, ולחצו Deploy.
+4. תחת **Settings → Variables and Secrets**, הוסיפו שתי משתני **Secret**:
+   - `GITHUB_TOKEN` = ה-PAT החדש מ-GitHub
+   - `APP_PASSWORD` = `bbttrrjj`
+5. Deploy לשמירת הסודות, אם מתבקש.
+6. העתיקו את כתובת ה-Worker, לדוגמה `https://trip-split-api.YOUR-SUBDOMAIN.workers.dev` (הכתובת המדויקת נקבעת בחשבון שלכם).
+
+### 3. חיבור האתר ל-Worker
+
+עדכנו בקובץ `index.html` בשורש המאגר את השורה:
+
+```js
+const WORKER_URL='';
+```
+
+לכתובת ה-Worker, לדוגמה:
+
+```js
+const WORKER_URL='https://trip-split-api.YOUR-SUBDOMAIN.workers.dev';
+```
+
+עשו Commit. GitHub Pages יפרסם את הגרסה החדשה. עד להגדרת ה-Worker, כפתור שמירת ההוצאות חסום כדי למנוע נתונים שנשמרים רק במכשיר אחד.
+
+### 4. בדיקה
+
+1. פתחו את האתר בשני מכשירים / חלונות גלישה נפרדים, והיכנסו עם הסיסמה.
+2. הוסיפו הוצאה ממכשיר אחד.
+3. במכשיר השני לחצו על "רענון" (או המתינו עד 30 שניות).
+4. ודאו שההוצאה מופיעה בשניהם וגם ב-`expenses.json` ב-GitHub.
+
+## הערות
+
+- הקובץ `expenses.json` ציבורי כי המאגר ציבורי. הסיסמה מגינה רק על הממשק בצורה בסיסית, לא על קריאת הנתונים ב-GitHub. **ה-GitHub PAT חייב להישאר סודי ב-Cloudflare.**
+- אם שני אנשים מעדכנים כמעט יחד, ה-Worker קורא את הגרסה העדכנית ומנסה שוב במקרה של קונפליקט.
+- **תיעוד בהיסטוריית Git**: כל הוספה ומחיקה עושה Commit, והוצאות שנמחקו נשארות זמינות בהיסטוריית המאגר.
+- סנכרון אינו WebSocket בזמן אמת; יש רענון אוטומטי כל 30 שניות.
+- אם בדפדפן היו הוצאות מהגרסה המקומית, הן נשמרות ב-localStorage אך אינן מתווספות אוטומטית ל-JSON כדי למנוע כפילויות.
+- אין צורך ב-Supabase או שירות אחסון נוסף.
